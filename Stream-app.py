@@ -14,11 +14,11 @@ st.markdown("<p style='text-align: center; font-size: 18px;'>Enter property deta
 # === Load Model and Features ===
 with open('random_forest_model.sav', 'rb') as f:
     model = pickle.load(f)
-st.sidebar.write("✅ Random Forest model loaded")
+st.sidebar.write("Random Forest model loaded")
 
 with open('model_features.sav', 'rb') as f:
     features = pickle.load(f)
-st.sidebar.write("✅ Model features loaded")
+st.sidebar.write("Model features loaded")
 
 # === User Input Section ===
 st.subheader("Input Property Details")
@@ -45,17 +45,21 @@ input_data = pd.DataFrame({
     'LB': [LB]
 })
 
-# Add One-Hot Encoded Location Columns
-for loc_col in [col for col in features if col.startswith('loc_')]:
-    input_data[loc_col] = 1 if loc_col == f'loc_{location}' else 0
+# Add one-hot encoded location columns efficiently
+location_df = pd.DataFrame({
+    col: [1 if col == f'loc_{location}' else 0] for col in features if col.startswith('loc_')
+})
 
-# Ensure all features exist in input_data
+# Combine both dataframes at once (avoid fragmentation)
+input_data = pd.concat([input_data, location_df], axis=1)
+
+# Ensure all features exist
 for col in features:
     if col not in input_data.columns:
         input_data[col] = 0
 
-# Reorder columns to match model training
 input_data = input_data[features]
+
 
 # === Prediction ===
 if st.button("Predict"):
@@ -87,9 +91,9 @@ if st.button("Predict"):
         main_contrib = main_contrib.sort_values(by='Percentage', ascending=False)
 
         # === Display Dynamic Feature Influence ===
-        st.subheader("Feature Importance (Dynamic Influence for Your Input)")
+        st.subheader("Feature Importance ")
         for _, row in main_contrib.iterrows():
-            st.write(f"**{row['Feature']}** — {row['Percentage']:.1f}%")
+            st.write(f"**{row['Feature']}** {row['Percentage']:.1f}%")
             st.progress(row['Percentage'] / 100)
 
         top_feature = main_contrib.iloc[0]
