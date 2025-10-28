@@ -1,6 +1,7 @@
 import streamlit as st
 import pickle
 import pandas as pd
+import shap
 import numpy as np
 
 # === Page Configuration ===
@@ -8,16 +9,16 @@ st.set_page_config(page_title="House Price Prediction", layout="centered")
 
 # === Page Title ===
 st.markdown("<h1 style='text-align: center; color: #4B8BBE;'>House Price Prediction</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; font-size: 18px;'>Enter the property details to predict the estimated price and see the most influential features.</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; font-size: 18px;'>Enter property details to predict the estimated price and see which features most influence your result.</p>", unsafe_allow_html=True)
 
 # === Load Model and Features ===
 with open('random_forest_model.sav', 'rb') as f:
     model = pickle.load(f)
-st.sidebar.write("Random Forest model loaded.")
+st.sidebar.write("✅ Random Forest model loaded")
 
 with open('model_features.sav', 'rb') as f:
     features = pickle.load(f)
-st.sidebar.write("Model features loaded.")
+st.sidebar.write("✅ Model features loaded")
 
 # === User Input Section ===
 st.subheader("Input Property Details")
@@ -48,7 +49,7 @@ input_data = pd.DataFrame({
 for loc_col in [col for col in features if col.startswith('loc_')]:
     input_data[loc_col] = 1 if loc_col == f'loc_{location}' else 0
 
-# Ensure all features exist in the input_data (to avoid KeyError)
+# Ensure all features exist in input_data
 for col in features:
     if col not in input_data.columns:
         input_data[col] = 0
@@ -62,40 +63,39 @@ if st.button("Predict"):
         predicted_price = model.predict(input_data)[0]
         st.success(f"Predicted House Price: Rp {predicted_price:,.0f}")
 
-        # === Feature Importance Calculation ===
-        importance_df = pd.DataFrame({
+        # === SHAP Interpretation (Dynamic Feature Influence) ===
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer.shap_values(input_data)
+
+        # Get absolute contribution per feature for this prediction
+        abs_contrib = np.abs(shap_values[0])
+        contribution_df = pd.DataFrame({
             'Feature': features,
-            'Importance': model.feature_importances_
+            'Contribution': abs_contrib
         })
 
-        # Combine all location columns into a single "Location" feature
-        loc_importance = importance_df[importance_df['Feature'].str.startswith('loc_')]['Importance'].sum()
-
-        # Keep only main numeric features
-        main_features = importance_df[~importance_df['Feature'].str.startswith('loc_')].copy()
-
-        # Add combined location importance
-        main_features = pd.concat([
-            main_features,
-            pd.DataFrame({'Feature': ['Location'], 'Importance': [loc_importance]})
+        # Combine location columns
+        loc_contrib = contribution_df[contribution_df['Feature'].str.startswith('loc_')]['Contribution'].sum()
+        main_contrib = contribution_df[~contribution_df['Feature'].str.startswith('loc_')].copy()
+        main_contrib = pd.concat([
+            main_contrib,
+            pd.DataFrame({'Feature': ['Location'], 'Contribution': [loc_contrib]})
         ])
 
         # Normalize to percentage
-        main_features['Percentage'] = (main_features['Importance'] / main_features['Importance'].sum()) * 100
-        main_features = main_features.sort_values(by='Percentage', ascending=False)
+        main_contrib['Percentage'] = (main_contrib['Contribution'] / main_contrib['Contribution'].sum()) * 100
+        main_contrib = main_contrib.sort_values(by='Percentage', ascending=False)
 
-        # === Display Feature Importance ===
-        st.subheader("Feature Importance (Percentage Influence)")
-
-        for _, row in main_features.iterrows():
-            st.write(f"**{row['Feature']}** — {row['Percentage']:.0f}%")
+        # === Display Dynamic Feature Influence ===
+        st.subheader("Feature Importance (Dynamic Influence for Your Input)")
+        for _, row in main_contrib.iterrows():
+            st.write(f"**{row['Feature']}** — {row['Percentage']:.1f}%")
             st.progress(row['Percentage'] / 100)
 
-        # Display the most influential feature
-        top_feature = main_features.iloc[0]
-        st.info(f"The most influential factor is '{top_feature['Feature']}' with approximately {top_feature['Percentage']:.1f}% impact on the predicted price.")
+        top_feature = main_contrib.iloc[0]
+        st.info(f"The most influential factor for this prediction is **{top_feature['Feature']}**, contributing approximately {top_feature['Percentage']:.1f}% to the predicted price.")
 
-        # Optional: Compare with actual price if provided
+        # === Optional: Compare with actual price
         if price_ref > 0:
             diff = abs(predicted_price - price_ref)
             st.write(f"Difference from actual price: Rp {diff:,.0f}")
