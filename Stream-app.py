@@ -27,6 +27,7 @@ col1, col2 = st.columns(2)
 with col1:
     location = st.selectbox("Location", [col.replace('loc_', '') for col in features if col.startswith('loc_')])
     bedrooms = st.number_input("Number of Bedrooms", min_value=0, step=1, value=3)
+    toilet = st.number_input("Number of Bathrooms", min_value=0, step=1, value=2)
     garage = st.number_input("Number of Garages", min_value=0, step=1, value=1)
 
 with col2:
@@ -37,6 +38,7 @@ with col2:
 # === Prepare Input Data ===
 input_data = pd.DataFrame({
     'bedrooms': [bedrooms],
+    'toilet': [toilet],
     'garage': [garage],
     'LT': [LT],
     'LB': [LB]
@@ -46,7 +48,12 @@ input_data = pd.DataFrame({
 for loc_col in [col for col in features if col.startswith('loc_')]:
     input_data[loc_col] = 1 if loc_col == f'loc_{location}' else 0
 
-# Ensure the same feature order as in training
+# Ensure all features exist in the input_data (to avoid KeyError)
+for col in features:
+    if col not in input_data.columns:
+        input_data[col] = 0
+
+# Reorder columns to match model training
 input_data = input_data[features]
 
 # === Prediction ===
@@ -55,19 +62,19 @@ if st.button("Predict"):
         predicted_price = model.predict(input_data)[0]
         st.success(f"Predicted House Price: Rp {predicted_price:,.0f}")
 
-        # === Feature Importance ===
+        # === Feature Importance Calculation ===
         importance_df = pd.DataFrame({
             'Feature': features,
             'Importance': model.feature_importances_
         })
 
-        # Combine all location columns into one aggregated "Location" importance
+        # Combine all location columns into a single "Location" feature
         loc_importance = importance_df[importance_df['Feature'].str.startswith('loc_')]['Importance'].sum()
 
-        # Filter only main numeric features
+        # Keep only main numeric features
         main_features = importance_df[~importance_df['Feature'].str.startswith('loc_')].copy()
 
-        # Add combined location as one feature
+        # Add combined location importance
         main_features = pd.concat([
             main_features,
             pd.DataFrame({'Feature': ['Location'], 'Importance': [loc_importance]})
@@ -77,17 +84,16 @@ if st.button("Predict"):
         main_features['Percentage'] = (main_features['Importance'] / main_features['Importance'].sum()) * 100
         main_features = main_features.sort_values(by='Percentage', ascending=False)
 
-        # Display the Feature Importance as horizontal bars
+        # === Display Feature Importance ===
         st.subheader("Feature Importance (Percentage Influence)")
 
         for _, row in main_features.iterrows():
-            bar_length = int(row['Percentage'] / 2)
             st.write(f"**{row['Feature']}** — {row['Percentage']:.0f}%")
             st.progress(row['Percentage'] / 100)
 
-        # Show the most influential feature
+        # Display the most influential feature
         top_feature = main_features.iloc[0]
-        st.info(f"The most influential factor is '{top_feature['Feature']}' with approximately {top_feature['Percentage']:.1f}% impact on the price.")
+        st.info(f"The most influential factor is '{top_feature['Feature']}' with approximately {top_feature['Percentage']:.1f}% impact on the predicted price.")
 
         # Optional: Compare with actual price if provided
         if price_ref > 0:
